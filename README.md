@@ -31,6 +31,8 @@ builds reuse it after verifying its SHA-256; the extension remains offline at ru
 |---|---|
 | `just` | list recipes |
 | `just gen` | regenerate `Miru.xcodeproj` from `project.yml` |
+| `just version` | print the current app version |
+| `just bump-version 1.2.3` | commit a version change if needed and create an annotated `v1.2.3` tag |
 | `just build` | fetch/verify highlight.js, then build `Miru.app` (ad-hoc signed) |
 | `just install` | build, install to `/Applications`, register extension |
 | `just qltest [fixture]` | install, reveal a fixture in Finder; press Space (default `mixed.md`) |
@@ -79,5 +81,25 @@ constraint.
 
 ## Distribution
 
-Out of scope for v1. Set `DEVELOPMENT_TEAM` in `project.yml`, replace ad-hoc
-signing in the `build` recipe with a distribution identity, and notarize.
+Run `just version` to check the current version. With a clean tracked working
+tree, `just bump-version 1.2.3` updates `project.yml` and creates an annotated
+`v1.2.3` tag. It commits only when the version changes, so it can also tag the
+current version. Push the commit and tag to run `.github/workflows/release.yml`.
+For a prerelease, create and push a matching
+tag such as `v1.2.3-rc.1` manually. The workflow builds a universal Developer
+ID-signed app, notarizes and staples it, then publishes a macOS ZIP and SHA-256
+checksum on a GitHub release. Local `just build` remains ad-hoc signed.
+
+Protect the GitHub `release` environment (require approval and restrict tags)
+and configure these secrets for its signing job:
+
+- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12` export
+- `APPLE_CERTIFICATE_PASSWORD`: password for the `.p12`
+- `APPLE_SIGNING_IDENTITY`: full certificate name, e.g.
+  `Developer ID Application: Your Name (TEAMID)`
+- `APPLE_TEAM_ID`: Apple Developer team ID
+- `APPLE_ID`: Apple ID used for notarization
+- `APPLE_PASSWORD`: app-specific password for that Apple ID
+
+On macOS, encode the certificate with `base64 -i certificate.p12 | tr -d '\n'`.
+No signing or notarization credentials belong in the repository.

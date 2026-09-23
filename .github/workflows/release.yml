@@ -1,0 +1,172 @@
+---
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: release
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Validate version tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo '::error::Expected v1.2.3 or v1.2.3-rc.1' >&2
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          echo "RELEASE_VERSION=${version%%-*}" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        run: brew install xcodegen just
+
+      - name: Check project version
+        run: |
+          configured="$(just version)"
+          if [[ "$configured" != "$RELEASE_VERSION" ]]; then
+            echo "::error::project.yml version $configured does not match tag $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          : "${APPLE_CERTIFICATE:?Missing APPLE_CERTIFICATE}"
+          : "${APPLE_CERTIFICATE_PASSWORD:?Missing APPLE_CERTIFICATE_PASSWORD}"
+          certificate="$RUNNER_TEMP/miru-certificate.p12"
+          keychain="$RUNNER_TEMP/miru-signing.keychain-db"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$certificate"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -t cert -f pkcs12 -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+
+      - name: Build and verify signed app
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID}"
+          : "${APPLE_SIGNING_IDENTITY:?Missing APPLE_SIGNING_IDENTITY}"
+          [[ "$APPLE_SIGNING_IDENTITY" == "Developer ID Application:"* ]]
+          just fetch-highlight
+          just gen
+          xcodebuild \
+            -project Miru.xcodeproj -scheme Miru -configuration Release \
+            -derivedDataPath build \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$APPLE_SIGNING_IDENTITY" \
+            CODE_SIGNING_REQUIRED=YES \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/miru-signing.keychain-db" \
+            MARKETING_VERSION="$RELEASE_VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            build
+          app=build/Build/Products/Release/Miru.app
+          extension="$app/Contents/PlugIns/MiruPreview.appex"
+          test -d "$extension"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          for bundle in "$app" "$extension"; do
+            codesign -dv --verbose=4 "$bundle" 2>&1 | grep -F "Authority=$APPLE_SIGNING_IDENTITY"
+            codesign -dv --verbose=4 "$bundle" 2>&1 | grep -F "TeamIdentifier=$APPLE_TEAM_ID"
+            codesign -dv --verbose=4 "$bundle" 2>&1 | grep -E 'flags=.*runtime'
+            plist="$bundle/Contents/Info.plist"
+            [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$plist")" == "$RELEASE_VERSION" ]]
+            [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$plist")" == "$GITHUB_RUN_NUMBER" ]]
+          done
+          for binary in "$app/Contents/MacOS/Miru" "$extension/Contents/MacOS/MiruPreview"; do
+            archs="$(lipo -archs "$binary")"
+            [[ " $archs " == *' arm64 '* && " $archs " == *' x86_64 '* ]]
+          done
+
+      - name: Notarize and package app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          : "${APPLE_ID:?Missing APPLE_ID}"
+          : "${APPLE_PASSWORD:?Missing APPLE_PASSWORD}"
+          : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID}"
+          app=build/Build/Products/Release/Miru.app
+          submission="$RUNNER_TEMP/miru-notarization.zip"
+          result="$RUNNER_TEMP/miru-notarization.json"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$submission"
+          xcrun notarytool submit "$submission" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --output-format json > "$result"
+          status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$result")"
+          if [[ "$status" != Accepted ]]; then
+            id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$result")"
+            echo "::error::Notarization $status (submission $id)" >&2
+            xcrun notarytool log "$id" \
+              --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" || true
+            exit 1
+          fi
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          mkdir -p dist
+          asset="Miru-$GITHUB_REF_NAME-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/$asset"
+          (cd dist && shasum -a 256 "$asset" > "$asset.sha256")
+
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/miru-signing.keychain-db" || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: macos
+          path: dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          asset="Miru-$GITHUB_REF_NAME-macOS.zip"
+          test -s "dist/$asset"
+          (cd dist && shasum -a 256 -c "$asset.sha256")
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/$asset" "dist/$asset.sha256" \
+            --verify-tag --generate-notes "${flags[@]}"

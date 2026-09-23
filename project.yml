@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "1.0"
+    MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""            # fill in for signed builds, blank for ad-hoc
@@ -26,6 +26,8 @@ targets:
       properties:
         CFBundleName: Miru
         CFBundleDisplayName: Miru
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: "12.0"
         NSPrincipalClass: NSApplication
         NSHighResolutionCapable: true
@@ -54,6 +56,8 @@ targets:
       path: Extension/Info.plist
       properties:
         CFBundleDisplayName: Miru Preview
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.quicklook.preview
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PreviewViewController
