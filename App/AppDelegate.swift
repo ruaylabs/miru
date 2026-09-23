@@ -1,10 +1,10 @@
 import Cocoa
 
-/// Minimal host app. Its only job is to be launched once so that `pluginkit`
-/// registers the embedded Quick Look extension.
+/// Contains the Quick Look extension and shows help when opened manually.
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    // Support older installers that launched the app for registration.
     if ProcessInfo.processInfo.arguments.contains("--register-only") {
       NSApp.terminate(nil)
       return
