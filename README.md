@@ -57,10 +57,10 @@ builds reuse it after verifying its SHA-256; the extension remains offline at ru
 
 ## CI
 
-GitHub Actions checks Swift formatting and builds on macOS 15 for relevant pushes,
-pull requests, and manual runs. It fetches highlight.js from a clean checkout and
-checks that the built extension contains it. Finder previews still need manual
-verification with `just qltest`.
+GitHub Actions checks Swift formatting and builds on macOS 15 for relevant branch
+pushes, pull requests, and manual runs; tag pushes only trigger releases. CI fetches
+highlight.js from a clean checkout and checks that the built extension contains it.
+Finder previews still need manual verification with `just qltest`.
 
 ## Security notes
 
