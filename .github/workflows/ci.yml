@@ -1,0 +1,43 @@
+---
+name: CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ci.yml"
+      - "App/**"
+      - "Extension/**"
+      - "Resources/**"
+      - "scripts/**"
+      - "justfile"
+      - "project.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6.0.3
+
+      - name: Install build tools
+        run: brew install xcodegen just
+
+      - name: Check Swift formatting
+        run: just format-check
+
+      - name: Build app and extension
+        run: just build
+
+      - name: Verify bundled highlight.js
+        run: |
+          cmp Resources/highlight.min.js \
+            build/Build/Products/Release/Miru.app/Contents/PlugIns/MiruPreview.appex/Contents/Resources/highlight.min.js

@@ -52,6 +52,13 @@ builds reuse it after verifying its SHA-256; the extension remains offline at ru
   tracked, run `git rm --cached Resources/highlight.min.js` once.
 - `test-fixtures/` — manual acceptance fixtures (`just qltest <name>.md`).
 
+## CI
+
+GitHub Actions checks Swift formatting and builds on macOS 15 for relevant pushes,
+pull requests, and manual runs. It fetches highlight.js from a clean checkout and
+checks that the built extension contains it. Finder previews still need manual
+verification with `just qltest`.
+
 ## Security notes
 
 - The extension is sandboxed and read-only. WebKit's content process requires

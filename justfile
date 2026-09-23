@@ -47,6 +47,10 @@ fetch-assets:
 format:
     find App Extension -name '*.swift' -exec xcrun swift-format format --in-place {} \;
 
+# Check Swift formatting without changing files
+format-check:
+    xcrun swift-format lint --strict --recursive App Extension
+
 # Reset Quick Look caches (run after Info.plist / UTI changes)
 reset:
     qlmanage -r
