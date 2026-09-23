@@ -1,0 +1,4 @@
+build/
+*.xcodeproj/
+Resources/highlight.min.js
+.DS_Store
