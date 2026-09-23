@@ -74,10 +74,10 @@ Finder previews still need manual verification with `just qltest`.
 
 ## Adding a highlight.js language
 
-Update `LANGS` and its SHA-256 pin in `scripts/fetch-assets.sh`, then run
-`just fetch-assets` to update `Resources/RESOURCES.md`. A hash mismatch reports
-its actual value for verification. Do it deliberately — the bundle is a design
-constraint.
+The pinned browser bundle already includes 36 languages. Only append a language
+to `scripts/fetch-assets.sh` if it is missing, then update `HLJS_SHA256` and run
+`just fetch-assets` to refresh `Resources/RESOURCES.md`. A hash mismatch reports
+its actual value for verification.
 
 ## Distribution
 
