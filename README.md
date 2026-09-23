@@ -43,7 +43,8 @@ builds reuse it after verifying its SHA-256; the extension remains offline at ru
 
 - `project.yml` — xcodegen spec, single source of truth. `Miru.xcodeproj` is
   generated and **not** committed.
-- `App/` — minimal host app whose only job is registering the extension.
+- `App/` — minimal host app. Installation launches it without a window; it
+  exits immediately. Opening it manually shows a closable help window.
 - `Extension/` — `PreviewViewController` (WKWebView + marked + highlight.js +
   mermaid).
 - `Resources/` — bundled JS/CSS. marked, mermaid, and theme.css are committed;

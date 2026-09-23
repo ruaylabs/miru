@@ -27,11 +27,11 @@ build: fetch-highlight gen
       CODE_SIGNING_REQUIRED=YES \
       build
 
-# Install to /Applications and register the extension
+# Install to /Applications and register the extension without opening a window
 install: build
     rm -rf /Applications/{{app_name}}.app
     cp -R {{build_dir}}/Build/Products/{{config}}/{{app_name}}.app /Applications/
-    open /Applications/{{app_name}}.app          # first launch registers the extension
+    open -n -g -W /Applications/{{app_name}}.app --args --register-only
     pluginkit -mAvvv -p com.apple.quicklook.preview | grep -i miru || true
 
 # Install and reveal a fixture in Finder (name or path); press Space to preview.
