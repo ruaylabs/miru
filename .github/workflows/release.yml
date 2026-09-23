@@ -78,7 +78,8 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$APPLE_SIGNING_IDENTITY" \
             CODE_SIGNING_REQUIRED=YES \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/miru-signing.keychain-db" \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/miru-signing.keychain-db --timestamp" \
             MARKETING_VERSION="$RELEASE_VERSION" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
@@ -91,6 +92,24 @@ jobs:
             codesign -dv --verbose=4 "$bundle" 2>&1 | grep -F "Authority=$APPLE_SIGNING_IDENTITY"
             codesign -dv --verbose=4 "$bundle" 2>&1 | grep -F "TeamIdentifier=$APPLE_TEAM_ID"
             codesign -dv --verbose=4 "$bundle" 2>&1 | grep -E 'flags=.*runtime'
+            timestamp="$(codesign -dv --verbose=4 "$bundle" 2>&1 | awk -F= '/^Timestamp=/{print $2}')"
+            if [[ -z "$timestamp" || "$timestamp" == none ]]; then
+              echo "::error::Missing secure timestamp in $bundle" >&2
+              exit 1
+            fi
+            entitlements="$RUNNER_TEMP/miru-signed-entitlements.plist"
+            rm -f "$entitlements"
+            codesign -d --entitlements "$entitlements" "$bundle" 2>/dev/null || true
+            if [[ -s "$entitlements" ]] &&
+              [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.get-task-allow' "$entitlements" 2>/dev/null)" == true ]]; then
+              echo "::error::Debugging entitlement in $bundle" >&2
+              exit 1
+            fi
+            if [[ "$bundle" == "$extension" ]]; then
+              for entitlement in com.apple.security.app-sandbox com.apple.security.network.client; do
+                [[ "$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$entitlements")" == true ]]
+              done
+            fi
             plist="$bundle/Contents/Info.plist"
             [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$plist")" == "$RELEASE_VERSION" ]]
             [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$plist")" == "$GITHUB_RUN_NUMBER" ]]
