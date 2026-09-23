@@ -167,11 +167,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController, WKN
 
   private func pageHTML() throws -> String {
     guard let themeCSS = Self.themeCSS else { throw CocoaError(.fileReadNoSuchFile) }
-    let hasDiagrams =
-      source.range(
-        of: #"(?m)^[ \t]*(`{3,}|~{3,})[ \t]*mermaid\b"#,
-        options: [.regularExpression, .caseInsensitive]) != nil
-    let mermaidScript = hasDiagrams ? #"<script src="mermaid.min.js"></script>"# : ""
     // Neutralize `</script` (any case) so the raw markdown cannot close its
     // own <script type="text/plain"> element. Restored in JS after reading
     // the element's textContent.
@@ -191,7 +186,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController, WKN
       <style>\#(themeCSS)</style>
       <script src="marked.min.js"></script>
       <script src="highlight.min.js"></script>
-      \#(mermaidScript)
       <style>
         html  { background: #ffffff; }
         body {
@@ -250,6 +244,19 @@ final class PreviewViewController: NSViewController, QLPreviewingController, WKN
         .replace(/<[\\]\/script/gi, '<' + '/' + 'script'); // rebuild the tag; a literal close-sequence would truncate this block
 
       let sourceHighlighted = false;
+      let mermaidLoaded = false;
+      let mermaidStarted = false;
+      function renderDiagrams() {
+        if (!mermaidLoaded || mermaidStarted || document.getElementById('rendered').hidden) return;
+        mermaidStarted = true;
+        try {
+          mermaid.run({ querySelector: '.mermaid', suppressErrors: true })
+            .catch(err => console.error('mermaid:', err));
+        } catch (error) {
+          console.error('mermaid:', error);
+        }
+      }
+
       window.setMode = function(showSource) {
         const sourceView = document.getElementById('source-view');
         if (showSource && !sourceHighlighted) {
@@ -258,6 +265,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController, WKN
         }
         document.getElementById('rendered').hidden = showSource;
         sourceView.hidden = !showSource;
+        if (!showSource) renderDiagrams();
       };
 
       try {
@@ -283,12 +291,26 @@ final class PreviewViewController: NSViewController, QLPreviewingController, WKN
 
         document.getElementById('rendered').innerHTML = marked.parse(src);
         if (document.querySelector('.mermaid')) {
-          mermaid.initialize({
-            startOnLoad: false,
-            theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
-          });
-          mermaid.run({ querySelector: '.mermaid', suppressErrors: true })
-            .catch(err => console.error('mermaid:', err));
+          // Let the Markdown paint before loading the large Mermaid bundle.
+          requestAnimationFrame(() => setTimeout(() => {
+            const script = document.createElement('script');
+            script.src = 'mermaid.min.js';
+            script.onload = () => {
+              try {
+                // Disable Mermaid's automatic window-load pass even in Source mode.
+                mermaid.initialize({
+                  startOnLoad: false,
+                  theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+                });
+                mermaidLoaded = true;
+                renderDiagrams();
+              } catch (error) {
+                console.error('mermaid:', error);
+              }
+            };
+            script.onerror = () => console.error('Miru could not load Mermaid');
+            document.head.appendChild(script);
+          }, 50));
         }
       } catch (error) {
         document.body.textContent = `Miru could not render: ${error.message}`;
